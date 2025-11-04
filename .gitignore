@@ -1,0 +1,49 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# --- Virtual env ---
+.env
+.venv
+env/
+venv/
+.SGenv/
+*.egg-info/
+*.egg
+
+# --- Jupyter / notebooks ---
+.ipynb_checkpoints/
+*.nbconvert.ipynb
+
+# --- Data & models ---
+data/
+!data/README.md
+*.csv
+*.xlsx
+*.json
+*.parquet
+*.pkl
+*.joblib
+
+# --- Logs & temp ---
+logs/
+*.log
+tmp/
+temp/
+*.tmp
+
+# --- Streamlit cache ---
+.streamlit/
+.streamlit_cache/
+
+# --- IDE / OS files ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Other ---
+*.bak
