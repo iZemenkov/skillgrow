@@ -1,0 +1,38 @@
+name: fetch-daily
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # запуск каждый день в 03:00 UTC
+  workflow_dispatch:        # возможность запустить вручную
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run fetcher
+        run: |
+          python etl/fetch_hh.py --max_pages 20
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/raw_data/*.csv
+          git commit -m "daily update: hh.ru data" || echo "nothing to commit"
+          git push
+
