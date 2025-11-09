@@ -18,16 +18,6 @@ venv/
 .ipynb_checkpoints/
 *.nbconvert.ipynb
 
-# --- Data & models ---
-data/
-!data/README.md
-*.csv
-*.xlsx
-*.json
-*.parquet
-*.pkl
-*.joblib
-
 # --- Logs & temp ---
 logs/
 *.log

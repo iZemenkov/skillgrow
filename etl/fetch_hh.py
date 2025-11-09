@@ -26,8 +26,6 @@ def get_session():
     s = requests.Session()
     s.headers.update({"User-Agent": "SkillGrow/1.0"})
     s.trust_env = False              # не брать HTTP(S)_PROXY из окружения
-    # Если хочешь полностью отключить прокси:
-    # s.proxies.update({"http": None, "https": None})
     return s
 
 SESSION = get_session()
@@ -71,7 +69,7 @@ def get_master_ids(master_path: Path = MASTER_PATH) -> set:
 
 def fetch_basic_vacancies(params: Dict[str, Any],
                           max_pages: Optional[int] = None,
-                          pause: float = 1.5) -> pd.DataFrame:
+                          pause: float = 1.75) -> pd.DataFrame:
     """
     Возвращает DataFrame с колонками: id, name, area, experience.
     Ходит по /vacancies (поиск), обходит страницы.
@@ -115,7 +113,7 @@ def filter_new_ids(df_basic: pd.DataFrame, master_ids: set) -> pd.DataFrame:
 # Детали для новых вакансий
 
 def fetch_vacancy_details(ids: Iterable[str],
-                          pause: float = 1.5,
+                          pause: float = 1.75,
                           base_url: str = "https://api.hh.ru/vacancies") -> pd.DataFrame:
     """
     По списку id ходит в /vacancies/{id}, забирает key_skills и description.
@@ -151,7 +149,7 @@ def build_new_dataset(df_new_basic: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=MASTER_COLUMNS)
 
     new_ids = df_new_basic["id"].astype(str).tolist()
-    df_details = fetch_vacancy_details(new_ids, pause=1.5)
+    df_details = fetch_vacancy_details(new_ids, pause=1.75)
 
     if df_details.empty:
         df_new_full = df_new_basic.copy()
@@ -204,7 +202,7 @@ def append_to_master(df_new_full: pd.DataFrame,
 
 def fetch_and_upsert(params: Dict[str, Any],
                      max_pages: int = 5,
-                     pause: float = 1.5,
+                     pause: float = 1.75,
                      save_prefix: str = "vacancies_new",
                      master_path: Path = MASTER_PATH) -> Dict[str, Any]:
     """
@@ -260,7 +258,7 @@ def parse_args() -> argparse.Namespace:
                    help="Поле поиска: name/description/etc")
     p.add_argument("--max_pages", type=int, default=5,
                    help="Сколько страниц пройти (ограничение поверх API)")
-    p.add_argument("--pause", type=float, default=1.5,
+    p.add_argument("--pause", type=float, default=1.75,
                    help="Пауза между запросами (сек)")
     p.add_argument("--date_from", type=str, default=None,
                    help="ISO-8601, напр. 2025-10-01T00:00:00")
