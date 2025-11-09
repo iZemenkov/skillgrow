@@ -12,8 +12,8 @@ from bs4 import BeautifulSoup
 
 # Константы и переменные пути
 
-RAW_DIR = Path("../data/raw_data")
-RAW_DIR.mkdir(parents=True, exist_ok=True)
+REPO_ROOT = Path(__file__).resolve().parents[1]     # skillgrow/
+RAW_DIR    = REPO_ROOT / "data" / "raw_data"
 
 MASTER_PATH = RAW_DIR / "vacancies_master.csv"
 
