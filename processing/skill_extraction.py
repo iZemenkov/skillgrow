@@ -23,9 +23,13 @@ import torch
 from sentence_transformers import SentenceTransformer
 
 # --------- Константы путей ---------
-RAW_DEFAULT = "../data/raw_data/vacancies_master.csv"
-OUT_DIR = Path("../data/processed")
+# Определяем корень проекта относительно текущего файла
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+RAW_DEFAULT = ROOT_DIR / "data" / "raw_data" / "vacancies_master.csv"
+OUT_DIR = ROOT_DIR / "data" / "processed"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+
 EXTRACTED_CSV = OUT_DIR / "extracted_skills.csv"
 EMB_PARQUET = OUT_DIR / "embeddings.parquet"
 
