@@ -1,0 +1,65 @@
+name: skills-extract-and-embed (daily)
+
+on:
+  workflow_dispatch: {}         # запуск вручную
+  schedule:
+    - cron: "15 3 * * *"        # ежедневно в 03:15 UTC
+
+permissions:
+  contents: write               # нужно, чтобы пушить изменения
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # На раннере без GPU — ставим CPU-версию torch
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Run skill extraction & embeddings
+        env:
+          # на вход даём мастер-файл из репо; скрипт должен писать в data/processed/
+          INPUT_CSV: data/raw_data/vacancies_master.csv
+        run: |
+          python - << 'PY'
+          import os, sys, subprocess
+          # ожидаем, что у тебя есть скрипт processing/skill_extraction.py
+          # который читает INPUT_CSV и сохраняет:
+          #   - data/processed/extracted_skills.csv
+          #   - data/processed/embeddings.parquet
+          cmd = [sys.executable, "processing/skill_extraction.py",
+                 "--input", os.environ["INPUT_CSV"],
+                 "--out-skills", "data/processed/extracted_skills.csv",
+                 "--out-emb", "data/processed/embeddings.parquet"]
+          print("Running:", " ".join(cmd))
+          subprocess.run(cmd, check=True)
+          PY
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/processed/*.csv data/processed/*.parquet || true
+          git commit -m "skills: daily extraction & embeddings" || echo "nothing to commit"
+          git push
+
