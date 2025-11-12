@@ -1,0 +1,45 @@
+name: skills-extraction-daily
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 3 * * *"  # ежедневно в 03:15 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # гарантируем CPU-версии
+          pip install sentence-transformers torch --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Run skill extraction + embeddings
+        run: |
+          python processing/skill_extraction.py \
+            --input data/raw_data/vacancies_master.csv \
+            --out-skills data/processed/extracted_skills.csv \
+            --out-emb data/processed/embeddings.parquet
+
+      - name: Commit artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/processed/extracted_skills.csv data/processed/embeddings.parquet
+          git commit -m "skills: daily extraction + embeddings" || echo "nothing to commit"
+          git push
+
+
