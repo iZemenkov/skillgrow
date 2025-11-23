@@ -26,7 +26,6 @@ temp/
 *.tmp
 
 # --- Streamlit cache ---
-.streamlit/
 .streamlit_cache/
 
 # --- IDE / OS files ---
