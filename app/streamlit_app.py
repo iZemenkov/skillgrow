@@ -8,11 +8,26 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import plotly.express as px
 
+# Импортируем только константы для демонстрации (никакого реального вызова API)
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from etl.fetch_hh import DEFAULT_PARAMS as HH_DEFAULT_PARAMS
+
+
+st.set_page_config(
+    page_title="SkillGrow — рекомендации по навыкам",
+    layout="wide",
+)
+
 # ------------------------------
 # Нормализация навыков и синонимы
 # ------------------------------
 def normalize_skill(s: str) -> str:
-    """Приводим разные написания одного навыка к каноническому виду."""
     s = s.strip().lower()
 
     mapping = {
@@ -34,8 +49,6 @@ def normalize_skill(s: str) -> str:
         # BI / визуализация
         "bi": "business intelligence",
         "powerbi": "power bi",
-
-        # Прочее — можно расширять по мере надобности
     }
 
     return mapping.get(s, s)
@@ -44,22 +57,25 @@ def normalize_skill(s: str) -> str:
 # ------------------------------
 # Загрузка обработанных данных
 # ------------------------------
+MASTER_URL = "https://izemenkov.github.io/skillgrow/data/raw_data/vacancies_master.csv"
 EXTRACTED_CSV = "https://izemenkov.github.io/skillgrow/data/processed/extracted_skills.csv"
 EMB_PARQUET = "https://izemenkov.github.io/skillgrow/data/processed/embeddings.parquet"
 
+
+
+master_df = pd.read_csv(MASTER_URL)
 skills_df = pd.read_csv(EXTRACTED_CSV)
 emb_df = pd.read_parquet(EMB_PARQUET)
 
 desc_emb = np.vstack(emb_df["desc_emb"].values)
 skills_emb = np.vstack(emb_df["skills_emb"].values)
 
-# Словарь навыков из вакансий
+# Словарь навыков из вакансий (для поиска в резюме)
 all_skills_raw = []
 for lst in skills_df["skills_list"].apply(eval):
     for sk in lst:
         all_skills_raw.append(sk)
 
-# можно использовать "сырые" навыки для поиска по тексту резюме
 all_skills = sorted({s for s in all_skills_raw})
 
 
@@ -86,11 +102,9 @@ def extract_resume_skills(text: str, vocab) -> list[str]:
         sk_l = sk.lower().strip()
         if not sk_l:
             continue
-        # ищем точное вхождение по словам
         if re.search(rf"\b{re.escape(sk_l)}\b", text):
             found.append(sk_l)
 
-    # нормализуем (склеиваем синонимы)
     normalized = {normalize_skill(s) for s in found}
     return sorted(normalized)
 
@@ -126,18 +140,14 @@ def recommend_skills(
     4) Отфильтровываем навыки, которые уже есть в резюме (с учётом синонимов).
     """
 
-    # Нормализованный набор навыков из резюме
     resume_skills_norm = {normalize_skill(s) for s in resume_skills}
 
-    # 1) Схожесть описания резюме с описаниями вакансий
     sim_desc = cosine_similarity([resume_emb], desc_emb)[0]
     top_idx = np.argsort(sim_desc)[::-1][:similar_top_n]
 
     similar_vacancies = skills_df.iloc[top_idx]
 
-    # 2) Частоты навыков в похожих вакансиях (на канонических названиях)
     freq: dict[str, int] = {}
-
     for lst in similar_vacancies["skills_list"]:
         for raw_sk in eval(lst):
             canon = normalize_skill(raw_sk)
@@ -154,23 +164,21 @@ def recommend_skills(
         .reset_index(drop=True)
     )
 
-    # 3) Семантическая близость навыка к резюме
     unique_skills = freq_df["skill"].tolist()
     skill_texts = [s for s in unique_skills]
     skill_embs = model.encode(skill_texts, normalize_embeddings=True)
     sim = cosine_similarity([resume_emb], skill_embs)[0]
-
     freq_df["similarity"] = sim
 
-    # 4) Фильтрация навыков, которые уже покрыты в резюме
     def is_covered(skill: str) -> bool:
         canon = normalize_skill(skill)
         return canon in resume_skills_norm
 
     freq_df = freq_df[~freq_df["skill"].apply(is_covered)]
 
-    # 5) Финальная сортировка: сначала по частоте, затем по семантической близости
-    freq_df = freq_df.sort_values(["freq", "similarity"], ascending=[False, False]).reset_index(drop=True)
+    freq_df = freq_df.sort_values(
+        ["freq", "similarity"], ascending=[False, False]
+    ).reset_index(drop=True)
 
     return freq_df
 
@@ -178,17 +186,9 @@ def recommend_skills(
 # ------------------------------
 # Визуализация Plotly
 # ------------------------------
-def plot_skill_recommendations_plotly(rec_df:pd.DataFrame, top_n=20):
-    """
-    Красивый интерактивный график рекомендаций:
-    - по оси Y — навыки
-    - по оси X — семантическая близость к резюме
-    - размер пузырька — частота навыка в похожих вакансиях
-    - цвет — тоже похожесть (similarity)
-    """
+def plot_skill_recommendations_plotly(rec_df: pd.DataFrame, top_n=20):
     if rec_df.empty:
-        print("Нет рекомендаций для отображения.")
-        return
+        return None
 
     df = (
         rec_df
@@ -214,19 +214,25 @@ def plot_skill_recommendations_plotly(rec_df:pd.DataFrame, top_n=20):
         hover_data={
             "freq": True,
             "similarity": ":.3f",
-            "skill": False,  # skill и так по оси Y
+            "skill": False,
         },
     )
 
-    # Чтобы самые важные навыки были сверху
-    fig.update_yaxes(categoryorder="array", categoryarray=df.sort_values(
-        ["freq", "similarity"], ascending=[True, True]
-    )["skill"].tolist())
+    fig.update_yaxes(
+        categoryorder="array",
+        categoryarray=df.sort_values(
+            ["freq", "similarity"], ascending=[True, True]
+        )["skill"].tolist()
+    )
 
     fig.update_layout(
-        xaxis=dict(range=[df["similarity"].min() - 0.02,
-                          df["similarity"].max() + 0.02]),
-        template="plotly_white",
+        xaxis=dict(
+            range=[
+                df["similarity"].min() - 0.02,
+                df["similarity"].max() + 0.02,
+            ]
+        ),
+        template="plotly_dark",
         height=600,
         margin=dict(l=150, r=40, t=60, b=60),
     )
@@ -235,61 +241,172 @@ def plot_skill_recommendations_plotly(rec_df:pd.DataFrame, top_n=20):
 
 
 # ------------------------------
-# Streamlit UI
+# UI: вкладки
 # ------------------------------
-st.title("Система рекомендаций по улучшению резюме для специалистов Data Science")
+st.title("SkillGrow — рекомендации по развитию навыков для Data Science")
 
-st.subheader('Принцип работы')
-st.text('Работа системы основана на данных актуальных вакансий с hh.ru. База вакансий обновляется ежедневно.')
-st.text('В процессе анализа ваше резюме сравнивается c наиболее близкими по описанию вакансиями, извлеченные навыки сравниваются с навыками, которые чаще других указывает рынок в близких вакансиях.')
-st.text('По результатам анализа рекомендуется список навыков, которых не хватает вашему резюме для соответствия указанным вакансиям.')
+tabs = st.tabs([
+    "1️⃣ Анализ резюме",
+    "2️⃣ Как собираются вакансии с hh.ru",
+    "3️⃣ Как извлекаются навыки и строятся эмбеддинги",
+])
 
-uploaded = st.file_uploader("Загрузите ваше резюме (DOCX)", type=["docx"])
+# ==============================
+# Вкладка 1 — Анализ резюме
+# ==============================
+with tabs[0]:
+    st.subheader("Анализ резюме и рекомендации по навыкам")
 
-if uploaded:
-    text = load_docx(uploaded)
-    clean = clean_text(text)
+    uploaded = st.file_uploader("Загрузите ваше резюме (DOCX)", type=["docx"])
 
-    # Эмбеддинг резюме
-    resume_emb = embed(clean)
+    if uploaded:
+        text = load_docx(uploaded)
+        clean = clean_text(text)
 
-
-    col1, col2 = st.columns(2)
-    with col1:
-
-        st.subheader("Извлечённый текст резюме")
-        st.write(text)
-
-    with col2:
-        # Навыки из резюме
+        resume_emb = embed(clean)
         resume_sk = extract_resume_skills(clean, all_skills)
-        st.subheader("Найденные навыки в резюме (нормализованные)")
-        if resume_sk:
-            st.write(", ".join(sorted(resume_sk)))
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Извлечённый текст резюме**")
+            st.write(text)
+
+        with col2:
+            st.markdown("**Найденные навыки (нормализованные)**")
+            if resume_sk:
+                st.write(", ".join(sorted(resume_sk)))
+            else:
+                st.write("Навыков не найдено (по словарю из вакансий).")
+
+        st.sidebar.header("Настройки рекомендаций")
+        top_n = st.sidebar.slider(
+            "Сколько навыков показывать на графике", 5, 30, 15
+        )
+        similar_top_n = st.sidebar.slider(
+            "Сколько похожих вакансий учитывать", 5, 50, 20
+        )
+
+        rec_df = recommend_skills(
+            clean,
+            resume_emb,
+            resume_skills=resume_sk,
+            similar_top_n=similar_top_n,
+        )
+
+        st.markdown("### График приоритетных навыков")
+        st.write(
+            "Рекомендация не означает, что у вас точно нет навыка — "
+            "она показывает, какие навыки чаще всего встречаются в похожих "
+            "вакансиях и не упомянуты в вашем резюме."
+        )
+
+        fig = plot_skill_recommendations_plotly(rec_df, top_n=top_n)
+        if fig is not None:
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            st.write("Навыков не найдено (по словарю из вакансий)")
+            st.info("Нет рекомендаций для отображения.")
 
-    st.sidebar.header("Настройки рекомендаций")
-    top_n = st.sidebar.slider("Сколько навыков показывать на графике", 5, 30, 15)
-    similar_top_n = st.sidebar.slider("Сколько похожих вакансий учитывать", 5, 50, 20)
+        rec_view = rec_df.rename(
+            columns={
+                "skill": "Навык",
+                "freq": "Частота в похожих вакансиях",
+                "similarity": "Семантическая близость к резюме",
+            }
+        )
+        st.markdown("### Таблица рекомендаций")
+        st.dataframe(rec_view.head(top_n))
+    else:
+        st.info("Загрузите файл резюме, чтобы получить рекомендации.")
 
+# ==============================
+# Вкладка 2 — Сбор вакансий
+# ==============================
+with tabs[1]:
+    st.subheader("Как собираются вакансии с hh.ru")
 
+    st.markdown(
+        """
+        **Пайплайн сбора данных** (скрипт `etl/fetch_hh.py`):
 
-    # Рекомендации
-    rec_df = recommend_skills(clean, resume_emb, similar_top_n=similar_top_n, resume_skills=resume_sk)
+        1. Формируется запрос к API hh.ru со строкой поиска по позициям Data Analyst / Data Scientist / специалист по машинному обучению.
+        2. Проходим по страницам выдачи (`/vacancies`) и собираем базовую информацию:
+           `id`, `name`, `area`, `experience`.
+        3. Для новых `id` ходим в `/vacancies/{id}` и забираем:
+           `key_skills`, `description`.
+        4. Сохраняем партию новых вакансий в `data/raw_data/vacancies_new_YYYYMMDD.csv`.
+        5. Обновляем мастер-файл `vacancies_master.csv` без дублей по `id`.
+        """
+    )
 
+    st.markdown("**Пример параметров запроса к API hh.ru:**")
+    st.json(HH_DEFAULT_PARAMS)
 
+    st.markdown("**Пример мастер-файла (сырые вакансии с hh.ru):**")
+    st.dataframe(
+        master_df.head(),
+        use_container_width=True
+    )
 
-    # График
-    st.subheader("График приоритетных навыков")
-    st.write('Рекомендация не обозначает что вы не имеете указанных навыков, но отсутствие их в Вашем резюме может повлиять на прохождение им фильтра кандиадтов')
-    fig = plot_skill_recommendations_plotly(rec_df, top_n=top_n)
-    st.plotly_chart(fig, width='content')
+    st.code(
+        """
+from etl.fetch_hh import fetch_and_upsert, DEFAULT_PARAMS
 
+summary = fetch_and_upsert(
+    params=DEFAULT_PARAMS,
+    max_pages=5,
+    pause=1.75,
+)
+print(summary)
+        """,
+        language="python",
+    )
 
-    rec_df = rec_df.rename(columns={"skill": "Навыки", 'freq': 'Частота упоминания в топе вакансий', 'similarity': 'Семантическая близость к резюме'})
-    st.subheader("Рекомендации по развитию/указанию навыков")
-    st.dataframe(rec_df.head(top_n))
-else:
-    st.info("Загрузите файл резюме, чтобы получить рекомендации.")
+# ==============================
+# Вкладка 3 — Навыки и эмбеддинги
+# ==============================
+with tabs[2]:
+    st.subheader("Как извлекаются навыки и строятся эмбеддинги")
 
+    st.markdown(
+        """
+        **Пайплайн обработки** (скрипт `processing/skill_extraction.py`):
+
+        1. Берём `vacancies_master.csv` и очищаем тексты описаний.
+        2. Формируем словарь навыков на основе `key_skills`.
+        3. Извлекаем навыки из `description` по словарю, приводим к нижнему регистру,
+           фильтруем шум (`it`, одиночные буквы, кроме `r` и т.п.).
+        4. Сохраняем таблицу `extracted_skills.csv` с колонками:
+           `id`, `description`, `skills_list`.
+        5. Строим эмбеддинги ruBERT (модель `ai-forever/sbert_large_nlu_ru`) для:
+           – текста описания вакансии (`desc_emb`),  
+           – строкового представления навыков (`skills_emb`).  
+        6. Сохраняем эмбеддинги в `embeddings.parquet`.
+        """
+    )
+
+    st.markdown("**Пример извлечённых навыков из вакансий:**")
+    st.write(skills_df.head())
+    st.markdown("**Пример векторизованного представления описаний вакансий и навыков:**")
+    st.write(emb_df.head())
+
+    st.markdown("**Размеры векторных представлений:**")
+    st.write(f"Вакансий в базе: **{len(skills_df)}**")
+    st.write(f"Матрица описаний: `desc_emb.shape = {desc_emb.shape}`")
+    st.write(f"Матрица навыков: `skills_emb.shape = {skills_emb.shape}`")
+
+    st.code(
+        """
+from sentence_transformers import SentenceTransformer
+from processing.skill_extraction import batched_encode  # логика батчевой векторизации
+
+model = SentenceTransformer("ai-forever/sbert_large_nlu_ru", device="cuda")
+desc_emb = batched_encode(model, df["description"])
+skills_emb = batched_encode(model, df["skills_text"])
+        """,
+        language="python",
+    )
+
+    st.info(
+        "Эти эмбеддинги используются на первой вкладке, чтобы находить "
+        "вакансии, похожие на ваше резюме, и извлекать недостающие навыки."
+    )
