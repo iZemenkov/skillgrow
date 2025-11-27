@@ -35,7 +35,7 @@ BASE_URL = "https://api.hh.ru/vacancies"
 
 # Параметры поиска по умолчанию
 DEFAULT_PARAMS = {
-    "text": "name:(data analyst) OR name:(data scientist) OR name:()",
+    "text": "name:(data analyst) OR name:(data scientist) OR name:(специалист по машинному обучению)",
     "area": "113",                # Россия
     "per_page": 100,              # вакансий на страницу
     "page": 0,                    # номер страницы
