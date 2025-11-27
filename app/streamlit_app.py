@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import docx
 import re
+import ast
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -11,6 +12,7 @@ import plotly.express as px
 # Импортируем только константы для демонстрации (никакого реального вызова API)
 import sys
 from pathlib import Path
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -31,10 +33,14 @@ def normalize_skill(s: str) -> str:
     s = s.strip().lower()
 
     mapping = {
-        # ML
+        # ML_DL
         "ml": "machine learning",
         "машинное обучение": "machine learning",
         "классическое машинное обучение": "machine learning",
+        "dl": "deep learning",
+        "deep learning": "dl",
+        "nlp": "natural language processing",
+        "nlp": "llm",
 
         # Data Science / DS
         "ds": "data science",
@@ -49,6 +55,7 @@ def normalize_skill(s: str) -> str:
         # BI / визуализация
         "bi": "business intelligence",
         "powerbi": "power bi",
+        "дашборды":"bi"
     }
 
     return mapping.get(s, s)
@@ -180,7 +187,7 @@ def recommend_skills(
         ["freq", "similarity"], ascending=[False, False]
     ).reset_index(drop=True)
 
-    return freq_df
+    return freq_df, similar_vacancies
 
 
 # ------------------------------
@@ -247,8 +254,7 @@ st.title("SkillGrow — рекомендации по развитию навы�
 
 tabs = st.tabs([
     "1️⃣ Анализ резюме",
-    "2️⃣ Как собираются вакансии с hh.ru",
-    "3️⃣ Как извлекаются навыки и строятся эмбеддинги",
+    "2️⃣ Как работает сервис"
 ])
 
 # ==============================
@@ -286,12 +292,29 @@ with tabs[0]:
             "Сколько похожих вакансий учитывать", 5, 50, 20
         )
 
-        rec_df = recommend_skills(
+        rec_df, similar_vacancies = recommend_skills(
             clean,
             resume_emb,
             resume_skills=resume_sk,
             similar_top_n=similar_top_n,
         )
+
+
+        similar_vacancies['skills_list'] = similar_vacancies['skills_list'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else [])
+        similar_vacancies['Недостающие навыки'] = similar_vacancies['skills_list'].apply(lambda lst: [x for x in lst if x not in resume_sk]).apply(lambda lst: ", ".join(lst))
+        similar_vacancies['Имеющиеся навыки'] = similar_vacancies['skills_list'].apply(lambda lst: [x for x in lst if x in resume_sk]).apply(lambda lst: ", ".join(lst))
+        similar_vacancies['skills_list'] = similar_vacancies['skills_list'].apply(lambda lst: ", ".join(lst))
+
+
+        similar_vacancies = similar_vacancies.rename(
+            columns={'id':'id',
+                     'description':'Описание вакансии',
+                     'skills_list':'Навыки вакансии'}
+        )
+
+
+        st.markdown("### Список приоритетных вакансий")
+        st.dataframe(similar_vacancies[['id','Навыки вакансии', 'Имеющиеся навыки','Недостающие навыки','Описание вакансии']])
 
         st.markdown("### График приоритетных навыков")
         st.write(
@@ -319,7 +342,7 @@ with tabs[0]:
         st.info("Загрузите файл резюме, чтобы получить рекомендации.")
 
 # ==============================
-# Вкладка 2 — Сбор вакансий
+# Вкладка 2 — Описание работы сервиса
 # ==============================
 with tabs[1]:
     st.subheader("Как собираются вакансии с hh.ru")
@@ -361,10 +384,6 @@ print(summary)
         language="python",
     )
 
-# ==============================
-# Вкладка 3 — Навыки и эмбеддинги
-# ==============================
-with tabs[2]:
     st.subheader("Как извлекаются навыки и строятся эмбеддинги")
 
     st.markdown(
@@ -383,6 +402,8 @@ with tabs[2]:
         6. Сохраняем эмбеддинги в `embeddings.parquet`.
         """
     )
+
+
 
     st.markdown("**Пример извлечённых навыков из вакансий:**")
     st.write(skills_df.head())
